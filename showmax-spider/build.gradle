@@ -1,0 +1,26 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '2.6.2'
+    id 'io.spring.dependency-management' version '1.0.11.RELEASE'
+}
+
+version '0.0.1'
+
+configurations {
+    all*.exclude group: 'org.springframework.boot', module: 'spring-boot-starter-tomcat'
+    all*.exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+    all*.exclude group: 'ch.qos.logback'
+}
+
+dependencies {
+    implementation project(':spider-common')
+    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-web'
+    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-undertow'
+    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-data-jpa'
+    implementation group: 'org.springframework.boot', name: 'spring-boot-starter-data-redis'
+    implementation group: 'mysql', name: 'mysql-connector-java', version: '8.0.27'
+    implementation group: 'com.zaxxer', name: 'HikariCP', version: '4.0.3'
+    implementation group: 'com.valor.common', name: 'common-base-api-model-v3', version: '3.1.0'
+    implementation group: 'com.valor.common', name: 'common-config-tools', version: '4.0.1'
+    implementation group: 'com.valor.common', name: 'common-log', version: '0.0.3'
+}

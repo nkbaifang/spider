@@ -1,0 +1,7 @@
+
+server:
+  port: 7104
+spring:
+  datasource:
+    hikari:
+      driver-class-name: com.mysql.cj.jdbc.Driver

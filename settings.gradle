@@ -1,0 +1,5 @@
+rootProject.name = 'spider'
+include 'spider-common'
+include 'showmax-spider'
+include 'downloader'
+

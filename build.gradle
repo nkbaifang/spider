@@ -1,0 +1,29 @@
+description = "ZIYI Spider"
+
+subprojects {
+    apply plugin: 'java'
+    group = "io.ziyi"
+    version = "0.0.1"
+
+    repositories {
+        maven {
+            url "${PRIVATE_REPO_RELEASE}"
+            allowInsecureProtocol true
+            credentials {
+                username "${PRIVATE_REPO_USERNAME}"
+                password "${PRIVATE_REPO_PASSWORD}"
+            }
+        }
+
+        maven { url 'https://maven.aliyun.com/repository/public/' }
+        maven { url 'https://maven.aliyun.com/repository/spring/' }
+        maven { url 'https://maven.aliyun.com/repository/spring-plugin' }
+    }
+
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+
+    tasks.withType(JavaCompile) {
+        options.encoding = "UTF-8"
+    }
+}

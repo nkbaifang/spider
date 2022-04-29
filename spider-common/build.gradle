@@ -1,0 +1,13 @@
+plugins {
+    id 'java-library'
+}
+
+version = '0.0.1'
+
+dependencies {
+    api group: 'com.fasterxml.jackson.core', name: 'jackson-core', version: '2.13.2'
+    api group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.13.2.2'
+    api group: 'org.apache.commons', name: 'commons-lang3', version: '3.4'
+    api group: 'org.slf4j', name: 'slf4j-api', version: '1.7.36'
+    api group: 'com.squareup.okhttp3', name: 'okhttp', version: '4.9.3'
+}
