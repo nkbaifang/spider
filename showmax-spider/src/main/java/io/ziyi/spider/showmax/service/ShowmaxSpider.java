@@ -2,8 +2,6 @@ package io.ziyi.spider.showmax.service;
 
 import common.config.tools.config.ConfigTools3;
 import io.ziyi.spider.http.HttpClient;
-import io.ziyi.spider.http.HttpException;
-import io.ziyi.spider.showmax.utils.FileUtils;
 import io.ziyi.spider.showmax.vo.Asset;
 import io.ziyi.spider.showmax.vo.Item;
 import io.ziyi.spider.showmax.vo.Play;
@@ -13,6 +11,7 @@ import io.ziyi.spider.util.MapUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
@@ -27,23 +26,31 @@ public class ShowmaxSpider {
 
     private final HttpClient client;
 
-    public ShowmaxSpider() {
+    public ShowmaxSpider(boolean useLogger) {
         Map<String, String> headers = MapUtils.singleMap("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
-        Proxy proxy = null;
+
+        long connectTimeout = ConfigTools3.getLong("spider.showmax.http.connect-timeout-seconds", 20L);
+        long readTimeout = ConfigTools3.getLong("spider.showmax.http.connect-timeout-seconds", 30L);
+
+        HttpClient.ClientBuilder builder = new HttpClient.ClientBuilder()
+                .headers(headers)
+                .connectTimeout(connectTimeout)
+                .readTimeout(readTimeout)
+                .useLogger(useLogger);
+
         boolean useProxy = ConfigTools3.getBoolean("spider.showmax.http.proxy", false);
         if ( useProxy ) {
             String host = ConfigTools3.getString("spider.showmax.http.proxy.host");
             int port = ConfigTools3.getInt("spider.showmax.http.proxy.port");
             try {
-                proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(InetAddress.getByName(host), port));
+                InetAddress address = InetAddress.getByName(host);
+                builder.proxy(address, port);
             } catch ( UnknownHostException ex ) {
                 logger.error(ex, "Proxy error", "Unknown proxy host: {}", host);
             }
         }
 
-        long connectTimeout = ConfigTools3.getLong("spider.showmax.http.connect-timeout-seconds", 20L);
-        long readTimeout = ConfigTools3.getLong("spider.showmax.http.connect-timeout-seconds", 30L);
-        this.client = new HttpClient(headers, proxy, connectTimeout, readTimeout);
+        this.client = builder.build();
     }
 
     public Asset queryAssets(String lang, String type, int start, int num) throws Exception {
@@ -57,8 +64,15 @@ public class ShowmaxSpider {
                 .addQuery("start", String.valueOf(start))
                 .addQuery("num", String.valueOf(num))
                 .get();
-        Asset asset = client.execute(request, Asset.TYPE);
-        logger.info("Query assets", "Result: lang={}, type={}, start={}, num={}, count={}, total={}, remaining={}", lang, type, start, num, asset.getCount(), asset.getTotal(), asset.getRemaining());
+        HttpClient.Response<Asset> response = client.execute(request, Asset.TYPE);
+        Asset asset;
+        if ( response.ok() ) {
+            asset = response.data();
+            logger.info("Query assets", "Result: lang={}, type={}, start={}, num={}, count={}, total={}, remaining={}", lang, type, start, num, asset.getCount(), asset.getTotal(), asset.getRemaining());
+        } else {
+            logger.warn("Query assets", "Result: type={}, start={}, num={}, code={}", lang, type, start, response.code());
+            asset = null;
+        }
         return asset;
     }
 
@@ -70,9 +84,14 @@ public class ShowmaxSpider {
                 .get();
         Item item = null;
         try {
-            item = client.execute(request, Item.TYPE);
-        } catch ( HttpException ex ) {
-            logger.error(ex, "Failed to query movie detail", "Movie: id={}", id);
+            HttpClient.Response<Item> response = client.execute(request, Item.TYPE);
+            if ( response.ok() ) {
+                item = response.data();
+            } else {
+                logger.warn("Query movie detail", "Result: id={}, code={}", id, response.code());
+            }
+        } catch ( IOException ex ) {
+            logger.error(ex, "Query movie detail", "Failed: id={}", id);
         }
         logger.info("Query movie", "Detail: id={}", id);
         return item;
@@ -87,8 +106,14 @@ public class ShowmaxSpider {
                 .get();
         Play play;
         try {
-            play = client.execute(ur, Play.TYPE);
-        } catch ( HttpException ex ) {
+            HttpClient.Response<Play> response = client.execute(ur, Play.TYPE);
+            if ( response.ok() ) {
+                play = response.data();
+            } else {
+                logger.warn("Download video MPD", "Failed to download mpd. id={}, code={}", videoId, response.code());
+                return false;
+            }
+        } catch ( IOException ex ) {
             logger.warn(ex, "Download video MPD", "Failed to download mpd. id={}", videoId);
             return false;
         }
@@ -103,7 +128,14 @@ public class ShowmaxSpider {
         ByteArrayOutputStream bout = new ByteArrayOutputStream();
         for ( String url : urls ) {
             logger.info("Download video MPD", "Detail: video={}, url={}", videoId, url);
-            long length = client.download(url, bout);
+            HttpClient.Response<Long> response = client.download(url, bout);
+            long length;
+            if ( response.ok() ) {
+                length = response.data();
+            } else {
+                length = -1;
+                logger.warn("Download video MPD", "Invalid length. id={}, code={}, length={}", videoId, response.code(), length);
+            }
             if ( length > 0L ) {
                 downloaded = true;
                 break;
@@ -128,6 +160,12 @@ public class ShowmaxSpider {
         boolean failed = false;
         do {
             Asset asset = queryAssets("eng", "movie", start, num);
+            if ( asset == null ) {
+                logger.warn("Failed to search movies", "");
+                failed = true;
+                break;
+            }
+
             if ( asset.getCount() > 0 ) {
                 try {
                     consumer.accept(asset.getItems());
@@ -141,7 +179,7 @@ public class ShowmaxSpider {
                 start += 60;
                 num = 60;
             } else {
-                start += asset.getRemaining();
+                start += asset.getCount();
                 num = asset.getRemaining();
             }
         } while ( num > 0 );

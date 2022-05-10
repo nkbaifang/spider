@@ -15,12 +15,12 @@ public class FileUtils {
     public static class FileInfo {
         private final String name;
         private final long length;
-        private final String md5;
+        private final String hash;
 
-        private FileInfo(String name, long length, String md5) {
+        private FileInfo(String name, long length, String hash) {
             this.name = name;
             this.length = length;
-            this.md5 = md5;
+            this.hash = hash;
         }
 
         public String getName() {
@@ -31,8 +31,8 @@ public class FileUtils {
             return length;
         }
 
-        public String getMd5() {
-            return md5;
+        public String getHash() {
+            return hash;
         }
     }
 
@@ -64,14 +64,14 @@ public class FileUtils {
             return null;
         }
 
-        String md5 = null;
+        String hash = null;
         try ( FileInputStream fin = new FileInputStream(file) ) {
-            md5 = DigestUtils.md5Hex(fin);
+            hash = DigestUtils.sha1Hex(fin);
         } catch ( Exception ex ) {
             logger.error(ex, "Read file", "Failed to calculate file hash: path={}", file.getAbsolutePath());
         }
 
-        return new FileInfo(file.getName(), file.length(), md5);
+        return new FileInfo(file.getName(), file.length(), hash);
     }
 
     public static void deleteFile(File file) {

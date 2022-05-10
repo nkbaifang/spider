@@ -8,6 +8,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 
 import javax.servlet.http.HttpServletRequest;
@@ -20,7 +21,7 @@ public class MovieController extends BaseComponent {
     @Autowired
     private MediaService service;
 
-    @RequestMapping(path = "/refresh", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    @RequestMapping(path = "/refresh", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public CommonResponse<Object> refresh(HttpServletRequest request, HttpServletResponse response) {
         logger.info("Refresh movies", "Request");
@@ -54,6 +55,46 @@ public class MovieController extends BaseComponent {
             result = builder.error(500, "Internal server error");
         }
         logger.info("Download movie", "Result: id={}, body={}", id, result);
+        return result;
+    }
+
+    @RequestMapping(path = "/download/all", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public CommonResponse<Object> downloadAll(
+            HttpServletRequest request, HttpServletResponse response
+    ) {
+        logger.info("Download movies", "");
+        CommonResponse.Builder<Object> builder = CommonResponse.builder();
+        CommonResponse<Object> result;
+        try {
+            service.downloadAll();;
+            result = builder.ok(null);
+        } catch ( Throwable error ) {
+            logger.error(error, "Download movies", "Internal server error");
+            result = builder.error(500, "Internal server error");
+        }
+        logger.info("Download movies", "Result: body={}", result);
+        return result;
+    }
+
+    @RequestMapping(path = "/query", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public CommonResponse<Object> query(
+            HttpServletRequest request, HttpServletResponse response,
+            @RequestParam(name = "start") int start,
+            @RequestParam(name = "num") int num
+    ) {
+        logger.info("Query movie", "Request: start={}, num={}", start, num);
+        CommonResponse.Builder<Object> builder = CommonResponse.builder();
+        CommonResponse<Object> result;
+        try {
+            service.list(start, num);
+            result = builder.ok(null);
+        } catch ( Throwable error ) {
+            logger.error(error, "Query movie", "Internal server error");
+            result = builder.error(500, "Internal server error");
+        }
+        logger.info("Query movie", "Result: start={}, num={}", start, num);
         return result;
     }
 }

@@ -4,27 +4,35 @@ import common.config.tools.config.ConfigTools3;
 import io.ziyi.spider.showmax.common.BaseComponent;
 import io.ziyi.spider.showmax.dao.MediaDao;
 import io.ziyi.spider.showmax.model.Movie;
+import io.ziyi.spider.showmax.model.MovieMpd;
 import io.ziyi.spider.showmax.model.MovieVideo;
 import io.ziyi.spider.showmax.utils.FileUtils;
 import io.ziyi.spider.showmax.vo.AggeratedCount;
+import io.ziyi.spider.showmax.vo.Asset;
 import io.ziyi.spider.showmax.vo.Item;
 import io.ziyi.spider.showmax.vo.Video;
 import io.ziyi.spider.util.CommonLogger;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.BoundValueOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
 import java.io.File;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.Date;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 @EnableScheduling
 @Component
@@ -64,6 +72,20 @@ public class MediaService extends BaseComponent {
         scheduler = new ScheduledThreadPoolExecutor(corePoolSize, threadFactory);
     }
 
+    @PostConstruct
+    protected void startup() {
+        scheduler.schedule(this::detail, 2L, TimeUnit.SECONDS);
+        scheduler.schedule(this::download, 2L, TimeUnit.SECONDS);
+    }
+
+    private void appendMovieToDownload(String id) {
+        redisTemplate.boundListOps("spider.showmax.movies.download.queue").rightPush(id);
+    }
+
+    private String peekMovieToDownload(long millis) {
+        return redisTemplate.boundListOps("spider.showmax.movies.download.queue").leftPop(Duration.ofMillis(millis));
+    }
+
     private void appendMovieToSearch(String id, int retryCount) {
         redisTemplate.boundListOps("spider.showmax.movies.detail.queue").rightPush(id);
         redisTemplate.boundValueOps("spider.showmax.movie.detail.retry." + id).set(String.valueOf(retryCount));
@@ -98,7 +120,7 @@ public class MediaService extends BaseComponent {
             return;
         }
 
-        ShowmaxSpider spider = new ShowmaxSpider();
+        ShowmaxSpider spider = new ShowmaxSpider(false);
         MediaService service = findBean(MediaService.class);
         int count = 0;
         do {
@@ -133,19 +155,31 @@ public class MediaService extends BaseComponent {
     @Transactional(rollbackFor = Exception.class)
     protected int saveMovie(Item item) {
         logger.info("Save movie", "Item: id={}, title={}", item.getId(), item.getTitle());
-        Movie movie = new Movie(item);
-        dao.saveMovie(movie);
-        AtomicInteger vc = new AtomicInteger(0);
+        //Movie movie = new Movie(item);
+
+        Movie movie = dao.findMovie(item.getId());
+        if ( movie == null ) {
+            movie = new Movie(item);
+            dao.saveMovie(movie);
+            logger.info("Save movie", "Save new movie: id={}", movie.getId());
+        } else {
+            return 0;
+        }
+
+        int result = 0;
         List<Video> vs = item.getVideos();
         if ( vs != null ) {
-            vs.forEach(v -> {
-                MovieVideo video = new MovieVideo(v);
-                video.setMovieId(movie.getId());
-                dao.saveVideo(video);
-                vc.getAndIncrement();
-            });
+            for ( Video v : vs ) {
+                MovieVideo video = dao.findMovieVideo(v.getId());
+                if ( video == null ) {
+                    logger.info("Save movie", "Save new video: movie={}, id={}", movie.getId(), v.getId());
+                    video = new MovieVideo(v);
+                    video.setMovieId(movie.getId());
+                    dao.saveVideo(video);
+                    result++;
+                }
+            }
         }
-        int result = vc.get();
         logger.info("Save movie", "After save: id={}, videos={}", movie.getId(), result);
         return result;
     }
@@ -154,16 +188,39 @@ public class MediaService extends BaseComponent {
         String time = redisTemplate.boundValueOps("spider.showmax.movie.refresh").get();
         if ( time != null ) {
             detail();
-            scheduler.schedule(this::checkMovieDetailTasks, 5000L, TimeUnit.SECONDS);
+            scheduler.schedule(this::checkMovieDetailTasks, 5L, TimeUnit.SECONDS);
         }
     }
 
-    public void refreshMovie() {
-        Boolean acquired = redisTemplate.boundValueOps("spider.showmax.movie.refresh").setIfAbsent(String.valueOf(System.currentTimeMillis()));
+    private boolean lockedAction(String key, BooleanSupplier action) {
+        Objects.requireNonNull(key);
+        Objects.requireNonNull(action);
+
+        BoundValueOperations<String, String> ops = redisTemplate.boundValueOps(key);
+        Boolean acquired = ops.setIfAbsent(String.valueOf(System.currentTimeMillis()));
         if ( Boolean.TRUE.equals(acquired) ) {
+            boolean release = action.getAsBoolean();
+            if ( release ) {
+                ops.getAndDelete();
+            }
+        }
+        return acquired != null && acquired;
+    }
+
+    private void releaseActionLock(String key) {
+        redisTemplate.delete(key);
+    }
+
+    private boolean isActionLocked(String key) {
+        String time = redisTemplate.boundValueOps(key).get();
+        return time != null;
+    }
+
+    public void refreshMovie() {
+        boolean acquired = lockedAction("spider.showmax.movie.refresh", () -> {
             logger.info("Refresh movie", "Start refreshing movies.");
             scheduler.execute(() -> {
-                ShowmaxSpider spider = new ShowmaxSpider();
+                ShowmaxSpider spider = new ShowmaxSpider(false);
                 try {
                     spider.searchMovies(items -> {
                         logger.info("Search movie", "Found movies: count={}", items.size());
@@ -173,11 +230,28 @@ public class MediaService extends BaseComponent {
                     logger.error(error, "Search movie failed", "");
                 }
                 logger.info("Refresh movie", "Finished refreshing movies.");
-                redisTemplate.delete("spider.showmax.movie.refresh");
+                releaseActionLock("spider.showmax.movie.refresh");
             });
-            scheduler.schedule(this::checkMovieDetailTasks, 5000L, TimeUnit.SECONDS);
-        } else {
+            scheduler.schedule(this::checkMovieDetailTasks, 5L, TimeUnit.SECONDS);
+            return false;
+        });
+        if ( !acquired ) {
             logger.warn("Refresh movie", "Process already started.");
+        }
+    }
+
+    public void list(int start, int num) {
+        ShowmaxSpider spider = new ShowmaxSpider(true);
+        try {
+            logger.info("Query asset", "Before: start={}, num={}", start, num);
+            Asset asset = spider.queryAssets("eng", "movie", start, num);
+            if ( asset != null ) {
+                logger.info("Query asset", "After: start={}, num={}, count={}, total={}, remaining={}", start, num, asset.getCount(), asset.getTotal(), asset.getRemaining());
+            } else {
+                logger.info("Query asset", "After: start={}, num={}, asset=null", start, num);
+            }
+        } catch ( Exception ex ) {
+            logger.warn(ex, "Query asset", "Failed to query asset. start={}, num={}", start, num);
         }
     }
 
@@ -188,26 +262,76 @@ public class MediaService extends BaseComponent {
             return 0;
         }
 
-        List<MovieVideo> videos = dao.findMovieVideos(movie.getId());
+        ShowmaxSpider spider = new ShowmaxSpider(false);
+        List<MovieMpd> list = downloadVideos(spider, movie.getId());
+        for ( MovieMpd mpd : list ) {
+            dao.saveMovieMpd(mpd);
+        }
+        return list.size();
+    }
+
+    private List<MovieMpd> downloadVideos(ShowmaxSpider spider, String movieId) {
+        List<MovieVideo> videos = dao.findMovieVideos(movieId);
         if ( videos.isEmpty() ) {
-            logger.info("Download movie", "Main videos not found: movie={}", movie.getId());
-            return 0;
+            logger.info("Download movie", "Main videos not found: movie={}", movieId);
+            return Collections.emptyList();
         }
 
-        int count = 0;
-        ShowmaxSpider spider = new ShowmaxSpider();
+        List<MovieMpd> result = new LinkedList<>();
         for ( MovieVideo video : videos ) {
-            File target = FileUtils.createLocalFile(String.format("movie/%s/%s/.mpd", movie.getId(), video.getId()));
+            File target = FileUtils.createLocalFile(String.format("movie/%s/%s/.mpd", movieId, video.getId()));
             try {
                 boolean ok = spider.downloadVideoMPD(video.getId(), target);
-                logger.info("Download video", "Download video MPD. movie={}, video={}, ok={}", movie.getId(), video.getId(), ok);
+                logger.info("Download video", "Download video MPD. movie={}, video={}, ok={}", movieId, video.getId(), ok);
                 if ( ok ) {
-                    count++;
+                    FileUtils.FileInfo info = FileUtils.readFileInfo(target);
+                    MovieMpd mpd = new MovieMpd();
+                    mpd.setId(video.getId());
+                    mpd.setMovieId(movieId);
+                    mpd.setDownloadTime(new Date());
+                    mpd.setLength(info.getLength());
+                    mpd.setFileSha1(info.getHash());
+                    result.add(mpd);
                 }
             } catch ( Exception ex ) {
-                logger.warn(ex, "Download video", "Failed to download video MPD. movie={}, video={}", movie.getId(), video.getId());
+                logger.warn(ex, "Download video", "Failed to download video MPD. movie={}, video={}", movieId, video.getId());
             }
         }
-        return count;
+        return result;
+    }
+
+    private void download() {
+        long millis = ConfigTools3.getLong("spider.showmax.redis.list-pop-timeout-millis", 200L);
+        ShowmaxSpider spider = new ShowmaxSpider(false);
+        int count = 0;
+        String id = peekMovieToDownload(millis);
+
+        while ( id != null ) {
+            List<MovieMpd> list = downloadVideos(spider, id);
+            list.forEach(dao::saveMovieMpd);
+            count += list.size();
+            id = peekMovieToDownload(millis);
+        }
+        logger.info("Download movie", "Result: count={}", count);
+    }
+
+    private void checkMovieDownloadTasks() {
+        if ( isActionLocked("spider.showmax.movie.download") ) {
+            download();
+            releaseActionLock("spider.showmax.movie.download");
+        }
+    }
+
+    public void downloadAll() {
+        boolean acquired = lockedAction("spider.showmax.movie.download", () -> {
+            logger.info("Download movie", "Start downloading movies.");
+            List<Movie> movies = dao.findAllMovies();
+            movies.forEach(movie -> appendMovieToDownload(movie.getId()));
+            scheduler.schedule(this::checkMovieDownloadTasks, 2L, TimeUnit.SECONDS);
+            return false;
+        });
+        if ( !acquired ) {
+            logger.warn("Refresh movie", "Process already started.");
+        }
     }
 }

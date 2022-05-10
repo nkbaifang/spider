@@ -46,7 +46,7 @@ public class Movie extends BaseModel<String> {
     @Column(name = "website_url", length = 240)
     private String websiteUrl;
 
-    @Column(name = "provider", length = 40)
+    @Column(name = "provider", length = 80)
     private String provider;
 
     @Column(name = "slug", length = 40)
