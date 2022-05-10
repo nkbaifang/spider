@@ -10,16 +10,15 @@ import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
-import okhttp3.Response;
 import okhttp3.ResponseBody;
 import okio.Buffer;
-import okio.Okio;
-import org.slf4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -49,7 +48,7 @@ public class HttpClient {
         }
 
         @Override
-        public Response intercept(Chain chain) throws IOException {
+        public okhttp3.Response intercept(Chain chain) throws IOException {
             okhttp3.Request.Builder builder = chain.request().newBuilder();
             headers.forEach(builder::addHeader);
             return chain.proceed(builder.build());
@@ -58,14 +57,11 @@ public class HttpClient {
 
     private static class CommonLoggerInterceptor implements Interceptor {
 
-        private final Logger logger;
-
-        private CommonLoggerInterceptor(Logger logger) {
-            this.logger = logger;
+        private CommonLoggerInterceptor() {
         }
 
         @Override
-        public Response intercept(Chain chain) throws IOException {
+        public okhttp3.Response intercept(Chain chain) throws IOException {
             okhttp3.Request request = chain.request();
             String url = request.url().toString();
             RequestBody requestBody = request.body();
@@ -75,7 +71,7 @@ public class HttpClient {
                 requestBody.writeTo(buffer);
                 requestText = buffer.readString(StandardCharsets.UTF_8);
             }
-            logger.info("Request begin [{}]: method={}, url={}, data={}", request.tag(), request.method(), url, requestText);
+            logger.info("Request begin", "[{}]: method={}, url={}, data={}", request.tag(), request.method(), url, requestText);
 
             okhttp3.Response result = null;
             long start = System.currentTimeMillis();
@@ -84,15 +80,55 @@ public class HttpClient {
 
                 okhttp3.ResponseBody responseBody = response.body();
                 String text = responseBody == null ? "" : responseBody.string();
-                logger.info("Request finished [{}]: time={}ms, status={}, response={}", request.tag(), end - start, response.code(), text);
+                logger.info("Request finished", "[{}]: time={}ms, status={}, response={}", request.tag(), end - start, response.code(), text);
 
                 if ( responseBody != null ) {
-                    ResponseBody copy = ResponseBody.create(responseBody.contentType(), text);
+                    ResponseBody copy = ResponseBody.Companion.create(text, responseBody.contentType());
                     result = response.newBuilder().body(copy).build();
+                } else {
+                    result = response;
                 }
             }
             return result;
         }
+    }
+
+    public static class ClientBuilder {
+        private Map<String, String> headers;
+        private Proxy proxy;
+        private long connectTimeout;
+        private long readTimeout;
+        private boolean useLogger;
+
+        public ClientBuilder headers(Map<String, String> headers) {
+            this.headers = Collections.unmodifiableMap(headers);
+            return this;
+        }
+
+        public ClientBuilder proxy(InetAddress address, int port) {
+            this.proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(address, port));
+            return this;
+        }
+
+        public ClientBuilder connectTimeout(long connectTimeout) {
+            this.connectTimeout = connectTimeout;
+            return this;
+        }
+
+        public ClientBuilder readTimeout(long readTimeout) {
+            this.readTimeout = readTimeout;
+            return this;
+        }
+
+        public ClientBuilder useLogger(boolean useLogger) {
+            this.useLogger = useLogger;
+            return this;
+        }
+
+        public HttpClient build() {
+            return new HttpClient(headers, proxy, connectTimeout, readTimeout, useLogger);
+        }
+
     }
 
     public static class Request {
@@ -105,6 +141,28 @@ public class HttpClient {
 
         public String url() {
             return request.url().toString();
+        }
+    }
+
+    public static class Response<T> {
+        private final int code;
+        private final T data;
+
+        private Response(int code, T data) {
+            this.code = code;
+            this.data = data;
+        }
+
+        public final boolean ok() {
+            return code >= 200 && code <= 299;
+        }
+
+        public int code() {
+            return code;
+        }
+
+        public T data() {
+            return data;
         }
     }
 
@@ -232,6 +290,7 @@ public class HttpClient {
             buildParams(this.queries, ub::addEncodedQueryParameter);
 
             okhttp3.Headers.Builder hb = new okhttp3.Headers.Builder();
+            headers.forEach(hb::add);
 
             return new okhttp3.Request.Builder()
                     .url(ub.build())
@@ -284,11 +343,11 @@ public class HttpClient {
 
     private final OkHttpClient client;
 
-    public HttpClient(Map<String, String> commonHeaders, long connectTimeout, long readTimeout) {
-        this(commonHeaders, null, connectTimeout, readTimeout);
+    private HttpClient(Map<String, String> commonHeaders, long connectTimeout, long readTimeout, boolean useLogger) {
+        this(commonHeaders, null, connectTimeout, readTimeout, useLogger);
     }
 
-    public HttpClient(Map<String, String> commonHeaders, Proxy proxy, long connectTimeout, long readTimeout) {
+    private HttpClient(Map<String, String> commonHeaders, Proxy proxy, long connectTimeout, long readTimeout, boolean useLogger) {
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
         if ( commonHeaders != null ) {
             builder.addInterceptor(new CommonHeadersInterceptor(commonHeaders));
@@ -296,8 +355,10 @@ public class HttpClient {
         if ( proxy != null ) {
             builder.proxy(proxy);
         }
+        if ( useLogger ) {
+            builder.addInterceptor(new CommonLoggerInterceptor());
+        }
         this.client = builder.connectTimeout(connectTimeout, TimeUnit.SECONDS)
-                .addInterceptor(new CommonLoggerInterceptor(logger.getLogger()))
                 .readTimeout(readTimeout, TimeUnit.SECONDS)
                 .build();
     }
@@ -308,29 +369,22 @@ public class HttpClient {
         return Base64.getUrlEncoder().encodeToString(data);
     }
 
-    private static <T> T parse(Response response, TypeReference<T> type) throws IOException {
-        T result = null;
-        ResponseBody body = response.body();
-        if ( body != null ) {
-            String text = body.string();
-            result = JsonUtils.parse(text, type);
-        }
-        return result;
-    }
-
-    private <R> R execute(okhttp3.Request request, Function<ResponseBody, R> parser) throws HttpException {
-        try ( Response response = client.newCall(request).execute() ) {
+    private <R> Response<R> execute(okhttp3.Request request, Function<ResponseBody, R> parser) throws IOException {
+        try ( okhttp3.Response response = client.newCall(request).execute() ) {
+            int code = response.code();
+            R data;
             if ( response.isSuccessful() ) {
-                return parser.apply(response.body());
+                data = parser.apply(response.body());
             } else {
-                throw new HttpException(response.code(), response.message());
+                //throw new HttpException(response.code(), response.message());
+                logger.warn("HTTP Error", "[{}]: code={}, message={}, url={}", request.tag(), code, response.message(), request.url().toString());
+                data = null;
             }
-        } catch ( IOException ex ) {
-            throw new HttpException(ex);
+            return new Response<>(code, data);
         }
     }
 
-    private long execute(okhttp3.Request request, final OutputStream out) throws HttpException {
+    private Response<Long> execute(okhttp3.Request request, final OutputStream out) throws IOException {
         return execute(request, (body) -> {
             if ( body == null ) {
                 logger.warn("HTTP response error", "Empty response body");
@@ -355,7 +409,7 @@ public class HttpClient {
         });
     }
 
-    public <RSP> RSP execute(Request request, TypeReference<RSP> type) throws HttpException {
+    public <RSP> Response<RSP> execute(Request request, TypeReference<RSP> type) throws IOException {
         return execute(request.request, (body) -> {
             RSP result = null;
             if ( body != null ) {
@@ -370,19 +424,9 @@ public class HttpClient {
             }
             return result;
         });
-/*
-        try ( Response response = client.newCall(request.request).execute() ) {
-            if ( response.isSuccessful() ) {
-                return parse(response, type);
-            } else {
-                throw new HttpException(response.code(), response.message());
-            }
-        } catch ( IOException ex ) {
-            throw new HttpException(ex);
-        } */
     }
 
-    public long execute(Request request, OutputStream out) throws HttpException {
+    public Response<Long> execute(Request request, OutputStream out) throws IOException {
         return execute(request.request, out);
     }
 
@@ -400,7 +444,7 @@ public class HttpClient {
         }
     }
 
-    public <T> T get(String url, Map<String, String> query, TypeReference<T> type) throws HttpException {
+    public <T> Response<T> get(String url, Map<String, String> query, TypeReference<T> type) throws IOException {
         Request request = new RequestBuilder()
                 .url(url)
                 .query(query)
@@ -408,7 +452,7 @@ public class HttpClient {
         return execute(request, type);
     }
 
-    public <T> T delete(String url, Map<String, String> query, TypeReference<T> type) throws HttpException {
+    public <T> Response<T> delete(String url, Map<String, String> query, TypeReference<T> type) throws IOException {
         Request request = new RequestBuilder()
                 .url(url)
                 .query(query)
@@ -416,7 +460,7 @@ public class HttpClient {
         return execute(request, type);
     }
 
-    public <T> T form(String url, Map<String, String> query, Map<String, String> params, TypeReference<T> type) throws HttpException {
+    public <T> Response<T> form(String url, Map<String, String> query, Map<String, String> params, TypeReference<T> type) throws IOException {
         Request request = new RequestBuilder()
                 .url(url)
                 .query(query)
@@ -425,7 +469,7 @@ public class HttpClient {
         return execute(request, type);
     }
 
-    public <T> T json(String url, Map<String, String> query, Object data, TypeReference<T> type) throws HttpException {
+    public <T> Response<T> json(String url, Map<String, String> query, Object data, TypeReference<T> type) throws IOException {
         Request request = new RequestBuilder()
                 .url(url)
                 .query(query)
@@ -434,7 +478,7 @@ public class HttpClient {
         return execute(request, type);
     }
 
-    public <T> T multipart(String url, Map<String, String> query, Map<String, File> files, Map<String, String> params, TypeReference<T> type) throws HttpException {
+    public <T> Response<T> multipart(String url, Map<String, String> query, Map<String, File> files, Map<String, String> params, TypeReference<T> type) throws IOException {
         Request request = new RequestBuilder()
                 .url(url)
                 .query(query)
@@ -444,7 +488,7 @@ public class HttpClient {
         return execute(request, type);
     }
 
-    public long download(String url, Map<String, String> query, OutputStream output) throws HttpException {
+    public Response<Long> download(String url, Map<String, String> query, OutputStream output) throws IOException {
         Request request = new RequestBuilder()
                 .url(url)
                 .query(query)
@@ -452,7 +496,7 @@ public class HttpClient {
         return execute(request, output);
     }
 
-    public long download(String url, OutputStream output) throws HttpException {
+    public Response<Long> download(String url, OutputStream output) throws IOException {
         okhttp3.Request request = new okhttp3.Request.Builder().url(url).get().build();
         return execute(request, output);
     }

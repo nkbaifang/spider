@@ -32,13 +32,17 @@ public class Downloader {
     public static boolean download(HttpClient client, String url, File target) throws Exception {
         ByteArrayOutputStream bout = new ByteArrayOutputStream();
         boolean result = false;
-        long length = client.download(url, bout);
-        if ( length > 0L ) {
-            try ( FileOutputStream fout = new FileOutputStream(target) ) {
-                fout.write(bout.toByteArray());
-                result = true;
+        HttpClient.Response<Long> response = client.download(url, bout);
+        if ( response.ok() ) {
+            long length = response.data();
+            if ( length > 0L ) {
+                try ( FileOutputStream fout = new FileOutputStream(target) ) {
+                    fout.write(bout.toByteArray());
+                    result = true;
+                }
             }
         }
+        System.out.printf("Download result: url=%s, code=%d, result=%s\n", url, response.code(), result);
         return result;
     }
 
