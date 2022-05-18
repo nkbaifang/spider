@@ -1,34 +1,37 @@
 package io.ziyi.spider.viu.model;
 
-import io.ziyi.spider.viu.vo.ViuSeries;
+import io.ziyi.spider.viu.vo.ViuSeriesSummary;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Index;
+import javax.persistence.NamedNativeQueries;
+import javax.persistence.NamedNativeQuery;
 import javax.persistence.Table;
+import java.util.Date;
 import java.util.Objects;
 
 @Entity
 @Table(
         name = "series",
         indexes = {
-                @Index(name = "IDX_series_product", columnList = "product_id"),
-                @Index(name = "IDX_series_number", columnList = "number"),
-                @Index(name = "IDX_series_cp", columnList = "cp_name")
+                @Index(name = "IDX_series_cp", columnList = "cp_name"),
+                @Index(name = "IDX_series_language", columnList = "language")
         }
 )
+@NamedNativeQueries({
+        @NamedNativeQuery(
+                name = "query_series_without_products",
+                query = "select S.* from series S left join series_product P on S.id = P.series_id where P.series_id is null order by S.id asc",
+                resultClass = Series.class
+        )
+})
 public class Series extends BaseModel<Long> {
 
     @Id
-    @Column(name = "series_id", nullable = false)
-    private long seriesId;
-
-    @Column(name = "product_id", nullable = false)
-    private long productId;
-
-    @Column(name = "number", nullable = false)
-    private int number;
+    @Column(name = "id", nullable = false)
+    private long id;
 
     @Column(name = "name", nullable = false, length = 80)
     private String name;
@@ -36,58 +39,45 @@ public class Series extends BaseModel<Long> {
     @Column(name = "cp_name", length = 40)
     private String cpName;
 
-    @Column(name = "synopsis", length = 100)
-    private String synopsis;
+    @Column(name = "is_movie", nullable = false)
+    private int isMovie;
 
-    @Column(name = "released_product_total", nullable = false)
-    private int releasedProductTotal;
+    @Column(name = "product_total", nullable = false)
+    private int productTotal;
+
+    @Column(name = "language", length = 32)
+    private String language;
+
+    @Column(name = "release_time", columnDefinition = "timestamp(3) default null")
+    private Date releaseTime;
+
+    @Column(name = "allow_tv", nullable = false)
+    private int allowTv;
+
+    @Column(name = "last_product_id", nullable = false)
+    private long lastProductId;
 
     public Series() {
     }
 
-    public Series(ViuSeries series) {
-        this.seriesId = series.getSeriesId();
-        this.name = series.getName();
-        this.cpName = series.getCpName();
-        this.productId = series.getProductId();
-        this.synopsis = series.getSynopsis();
-        this.releasedProductTotal = series.getReleasedProductTotal();
-        this.number = series.getNumber();
+    public Series(ViuSeriesSummary summary) {
+        this.id = summary.getSeriesId();
+        this.name = summary.getName();
+        this.cpName = summary.getCpName();
+        this.isMovie = summary.getIsMovie();
+        this.productTotal = summary.getProductTotal();
+        this.lastProductId = summary.getProductId();
     }
 
     @Override
     public Long getId() {
-        return seriesId;
+        return id;
     }
 
     @Override
     public void setId(Long id) {
         Objects.requireNonNull(id);
-        this.seriesId = id;
-    }
-
-    public long getProductId() {
-        return productId;
-    }
-
-    public void setProductId(long productId) {
-        this.productId = productId;
-    }
-
-    public long getSeriesId() {
-        return seriesId;
-    }
-
-    public void setSeriesId(long seriesId) {
-        this.seriesId = seriesId;
-    }
-
-    public int getNumber() {
-        return number;
-    }
-
-    public void setNumber(int number) {
-        this.number = number;
+        this.id = id;
     }
 
     public String getName() {
@@ -106,19 +96,51 @@ public class Series extends BaseModel<Long> {
         this.cpName = cpName;
     }
 
-    public String getSynopsis() {
-        return synopsis;
+    public int getIsMovie() {
+        return isMovie;
     }
 
-    public void setSynopsis(String synopsis) {
-        this.synopsis = synopsis;
+    public void setIsMovie(int isMovie) {
+        this.isMovie = isMovie;
     }
 
-    public int getReleasedProductTotal() {
-        return releasedProductTotal;
+    public int getProductTotal() {
+        return productTotal;
     }
 
-    public void setReleasedProductTotal(int releasedProductTotal) {
-        this.releasedProductTotal = releasedProductTotal;
+    public void setProductTotal(int productTotal) {
+        this.productTotal = productTotal;
+    }
+
+    public String getLanguage() {
+        return language;
+    }
+
+    public void setLanguage(String language) {
+        this.language = language;
+    }
+
+    public Date getReleaseTime() {
+        return releaseTime;
+    }
+
+    public void setReleaseTime(Date releaseTime) {
+        this.releaseTime = releaseTime;
+    }
+
+    public int getAllowTv() {
+        return allowTv;
+    }
+
+    public void setAllowTv(int allowTv) {
+        this.allowTv = allowTv;
+    }
+
+    public long getLastProductId() {
+        return lastProductId;
+    }
+
+    public void setLastProductId(long lastProductId) {
+        this.lastProductId = lastProductId;
     }
 }

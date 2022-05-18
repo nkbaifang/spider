@@ -1,20 +1,45 @@
 package io.ziyi.spider.viu.dao;
 
+import io.ziyi.spider.util.MapUtils;
 import io.ziyi.spider.viu.model.Category;
+import io.ziyi.spider.viu.model.ProductStream;
 import io.ziyi.spider.viu.model.Series;
 import io.ziyi.spider.viu.model.SeriesCategory;
+import io.ziyi.spider.viu.model.SeriesProduct;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class SeriesDao extends CommonDao {
 
+    @Transactional(readOnly = true)
+    public Series findSeries(long seriesId) {
+        return super.find(Series.class, seriesId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Series> findSeriesWithoutProducts() {
+        return super.query(Series.class, "query_series_without_products", null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SeriesProduct> findProductsWithoutStreams() {
+        return super.query(SeriesProduct.class, "query_series_without_streams", null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void saveSeries(Series series) {
+        super.save(series);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void saveSeries(Series series, long categoryId) {
-        SeriesCategory sc = new SeriesCategory(series.getSeriesId(), categoryId);
+        SeriesCategory sc = new SeriesCategory(series.getId(), categoryId);
         super.save(series);
         super.save(sc);
     }
@@ -34,4 +59,33 @@ public class SeriesDao extends CommonDao {
         return super.find(Category.class, id);
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public void saveSeriesProduct(SeriesProduct product) {
+        super.save(product);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SeriesProduct> findSeriesProducts(long seriesId) {
+        Map<String, Object> filter = MapUtils.build("seriesId", seriesId);
+        Map<String, Boolean> sorter = asc("number");
+        return super.query(SeriesProduct.class, filter, sorter, false);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void saveProductStream(ProductStream stream) {
+        super.save(stream);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductStream> findProductStreams(long productId) {
+        Map<String, Object> filter = MapUtils.build("productId", productId);
+        return super.query(ProductStream.class, filter, null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void updateProductStreams(long productId, Collection<ProductStream> streams) {
+        Map<String, Object> filter = MapUtils.build("productId", productId);
+        super.delete(ProductStream.class, filter);
+        super.saveAll(streams);
+    }
 }

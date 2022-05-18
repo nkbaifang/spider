@@ -11,7 +11,7 @@ public class ViuSeriesStat extends CommonVO {
     private List<ViuCategorySeriesTotal> categorySeriesTotal;
 
     @JsonProperty("series")
-    private List<ViuSeries> series;
+    private List<ViuSeriesSummary> series;
 
     public List<ViuCategorySeriesTotal> getCategorySeriesTotal() {
         return categorySeriesTotal;
@@ -21,11 +21,11 @@ public class ViuSeriesStat extends CommonVO {
         this.categorySeriesTotal = categorySeriesTotal;
     }
 
-    public List<ViuSeries> getSeries() {
+    public List<ViuSeriesSummary> getSeries() {
         return series;
     }
 
-    public void setSeries(List<ViuSeries> series) {
+    public void setSeries(List<ViuSeriesSummary> series) {
         this.series = series;
     }
 }

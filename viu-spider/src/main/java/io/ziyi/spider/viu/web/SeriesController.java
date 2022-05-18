@@ -26,17 +26,17 @@ public class SeriesController extends BaseComponent {
             HttpServletRequest request, HttpServletResponse response,
             @PathVariable("category") long category
     ) {
-        logger.info("Refresh series", "Request: category={}", category);
+        logger.info("Refresh category", "Request: category={}", category);
         CommonResponse.Builder<Object> builder = CommonResponse.builder();
         CommonResponse<Object> result;
         try {
             service.refreshSeries(category);
             result = builder.ok(null);
         } catch ( Throwable error ) {
-            logger.error(error, "Refresh series", "Internal server error");
+            logger.error(error, "Refresh category", "Internal server error");
             result = builder.error(500, "Internal server error");
         }
-        logger.info("Refresh series", "Result: body={}", result);
+        logger.info("Refresh category", "Result: body={}", result);
         return result;
     }
 
@@ -45,18 +45,17 @@ public class SeriesController extends BaseComponent {
     public CommonResponse<Object> refreshAll(
             HttpServletRequest request, HttpServletResponse response
     ) {
-        logger.info("Refresh series", "Request: with all categories");
+        logger.info("Refresh categories", "Request: with all categories");
         CommonResponse.Builder<Object> builder = CommonResponse.builder();
         CommonResponse<Object> result;
         try {
             service.refreshSeries();
             result = builder.ok(null);
         } catch ( Throwable error ) {
-            logger.error(error, "Refresh series", "Internal server error");
+            logger.error(error, "Refresh categories", "Internal server error");
             result = builder.error(500, "Internal server error");
         }
-        logger.info("Refresh series", "Result: body={}", result);
+        logger.info("Refresh categories", "Result: body={}", result);
         return result;
     }
-
 }

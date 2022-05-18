@@ -69,4 +69,30 @@ public class MapUtils {
         }
         return result;
     }
+
+    public static Object optionalSearch(Map<String, Object> map, String... keys) {
+        for ( String key : keys ) {
+            if ( map.containsKey(key) ) {
+                return map.get(key);
+            }
+        }
+        return null;
+    }
+
+    public static Object deepSearch(Map<String, Object> map, String... keys) {
+        Map<String, Object> target = map;
+        int index = 0;
+        Object value = null;
+        while ( index < keys.length ) {
+            String key = keys[index];
+            value = target.get(key);
+            if ( !target.containsKey(key) || !(value instanceof Map) ) {
+                break;
+            } else {
+                target = (Map<String, Object>) value;
+            }
+            index++;
+        }
+        return value;
+    }
 }

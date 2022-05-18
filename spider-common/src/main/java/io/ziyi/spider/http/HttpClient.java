@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.ziyi.spider.util.CommonLogger;
 import io.ziyi.spider.util.JsonUtils;
 import okhttp3.FormBody;
+import okhttp3.Headers;
 import okhttp3.HttpUrl;
 import okhttp3.Interceptor;
 import okhttp3.MediaType;
@@ -34,7 +35,6 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 
 public class HttpClient {
 
@@ -148,6 +148,8 @@ public class HttpClient {
         private final int code;
         private final T data;
 
+        private final Map<String, String> cookies = new LinkedHashMap<>();
+
         private Response(int code, T data) {
             this.code = code;
             this.data = data;
@@ -163,6 +165,17 @@ public class HttpClient {
 
         public T data() {
             return data;
+        }
+
+        public synchronized Map<String, String> getCookies() {
+            return Collections.unmodifiableMap(cookies);
+        }
+
+        public synchronized void setCookies(Map<String, String> cookies) {
+            this.cookies.clear();
+            if ( cookies != null ) {
+                this.cookies.putAll(cookies);
+            }
         }
     }
 
@@ -341,11 +354,7 @@ public class HttpClient {
         random.setSeed(System.currentTimeMillis() ^ 0x47b82a696d8fdff9L);
     }
 
-    private final OkHttpClient client;
-
-    private HttpClient(Map<String, String> commonHeaders, long connectTimeout, long readTimeout, boolean useLogger) {
-        this(commonHeaders, null, connectTimeout, readTimeout, useLogger);
-    }
+    private final OkHttpClient.Builder clientBuilder;
 
     private HttpClient(Map<String, String> commonHeaders, Proxy proxy, long connectTimeout, long readTimeout, boolean useLogger) {
         OkHttpClient.Builder builder = new OkHttpClient.Builder();
@@ -358,9 +367,8 @@ public class HttpClient {
         if ( useLogger ) {
             builder.addInterceptor(new CommonLoggerInterceptor());
         }
-        this.client = builder.connectTimeout(connectTimeout, TimeUnit.SECONDS)
-                .readTimeout(readTimeout, TimeUnit.SECONDS)
-                .build();
+        this.clientBuilder = builder.connectTimeout(connectTimeout, TimeUnit.SECONDS)
+                .readTimeout(readTimeout, TimeUnit.SECONDS);
     }
 
     private static String newTag() {
@@ -369,23 +377,46 @@ public class HttpClient {
         return Base64.getUrlEncoder().encodeToString(data);
     }
 
-    private <R> Response<R> execute(okhttp3.Request request, Function<ResponseBody, R> parser) throws IOException {
+    private Map<String, String> getCookies(Headers headers) {
+        if ( headers == null ) {
+            return null;
+        }
+        Map<String, String> cookies = new LinkedHashMap<>();
+        headers.values("Set-Cookie").forEach(cookie -> {
+            int idx = cookie.indexOf(';');
+            if ( idx > 0 ) {
+                cookie = cookie.substring(0, idx);
+                idx = cookie.indexOf('=');
+                String name = cookie.substring(0, idx);
+                String value = cookie.substring(idx + 1);
+                cookies.put(name, value);
+            }
+        });
+        return cookies;
+    }
+
+    private <R> Response<R> execute(okhttp3.Request request, BiFunction<ResponseBody, Map<String, String>, R> parser) throws IOException {
+        OkHttpClient client = clientBuilder.build();
         try ( okhttp3.Response response = client.newCall(request).execute() ) {
             int code = response.code();
             R data;
+            Map<String, String> cookies = null;
             if ( response.isSuccessful() ) {
-                data = parser.apply(response.body());
+                cookies = getCookies(response.headers());
+                data = parser.apply(response.body(), cookies);
             } else {
                 //throw new HttpException(response.code(), response.message());
                 logger.warn("HTTP Error", "[{}]: code={}, message={}, url={}", request.tag(), code, response.message(), request.url().toString());
                 data = null;
             }
-            return new Response<>(code, data);
+            Response<R> result = new Response<>(code, data);
+            result.setCookies(cookies);
+            return result;
         }
     }
 
     private Response<Long> execute(okhttp3.Request request, final OutputStream out) throws IOException {
-        return execute(request, (body) -> {
+        return execute(request, (body, cookies) -> {
             if ( body == null ) {
                 logger.warn("HTTP response error", "Empty response body");
                 return 0L;
@@ -410,7 +441,7 @@ public class HttpClient {
     }
 
     public <RSP> Response<RSP> execute(Request request, TypeReference<RSP> type) throws IOException {
-        return execute(request.request, (body) -> {
+        return execute(request.request, (body, cookies) -> {
             RSP result = null;
             if ( body != null ) {
                 try {

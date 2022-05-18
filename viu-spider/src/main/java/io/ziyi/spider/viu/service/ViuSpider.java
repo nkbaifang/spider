@@ -5,11 +5,14 @@ import common.config.tools.config.ConfigTools3;
 import io.ziyi.spider.http.HttpClient;
 import io.ziyi.spider.util.CommonLogger;
 import io.ziyi.spider.util.MapUtils;
+import io.ziyi.spider.viu.vo.ViuProduct;
 import io.ziyi.spider.viu.vo.ViuResponse;
-import io.ziyi.spider.viu.vo.ViuSeries;
+import io.ziyi.spider.viu.vo.ViuVodDetail;
 import io.ziyi.spider.viu.vo.ViuSeriesStat;
+import io.ziyi.spider.viu.vo.ViuSeriesSummary;
 import io.ziyi.spider.viu.vo.ViuStatus;
 
+import java.io.ByteArrayOutputStream;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
@@ -59,7 +62,6 @@ public class ViuSpider {
                 .addQuery("platform_flag_label", "web")
                 .addQuery("area_id", "1")
                 .addQuery("language_flag_id", "3")
-                .addQuery("cpreference_id", "")
                 .addQuery("category_id", categoryId)
                 .addQuery("length", String.valueOf(length))
                 .addQuery("offset", String.valueOf(offset))
@@ -76,86 +78,8 @@ public class ViuSpider {
         }
         return result;
     }
-/*
-    public Item queryMovieDetail(String id) {
-        HttpClient.Request request = new HttpClient.RequestBuilder()
-                .url("https://api.showmax.com/v142.0/website/catalogue/asset/" + id)
-                .addQuery("lang", "eng")
-                .addQuery("subscription_status", "full")
-                .get();
-        Item item = null;
-        try {
-            HttpClient.Response<Item> response = client.execute(request, Item.TYPE);
-            if ( response.ok() ) {
-                item = response.data();
-            } else {
-                logger.warn("Query movie detail", "Result: id={}, code={}", id, response.code());
-            }
-        } catch ( IOException ex ) {
-            logger.error(ex, "Query movie detail", "Failed: id={}", id);
-        }
-        logger.info("Query movie", "Detail: id={}", id);
-        return item;
-    }
 
-    public boolean downloadVideoMPD(String videoId, File target) throws Exception {
-        HttpClient.Request ur = new HttpClient.RequestBuilder()
-                .url("https://api.showmax.com/v142.0/website/playback/play/" + videoId)
-                .addQuery("encoding", "mpd_widevine_modular")
-                .addQuery("lang", "eng")
-                .addQuery("subscription_status", "full")
-                .get();
-        Play play;
-        try {
-            HttpClient.Response<Play> response = client.execute(ur, Play.TYPE);
-            if ( response.ok() ) {
-                play = response.data();
-            } else {
-                logger.warn("Download video MPD", "Failed to download mpd. id={}, code={}", videoId, response.code());
-                return false;
-            }
-        } catch ( IOException ex ) {
-            logger.warn(ex, "Download video MPD", "Failed to download mpd. id={}", videoId);
-            return false;
-        }
-
-        List<String> urls = play.getUrls();
-        if ( urls == null || urls.isEmpty() ) {
-            logger.warn("Download video MPD", "Empty MPD urls. id={}", videoId);
-            return false;
-        }
-
-        boolean downloaded = false;
-        ByteArrayOutputStream bout = new ByteArrayOutputStream();
-        for ( String url : urls ) {
-            logger.info("Download video MPD", "Detail: video={}, url={}", videoId, url);
-            HttpClient.Response<Long> response = client.download(url, bout);
-            long length;
-            if ( response.ok() ) {
-                length = response.data();
-            } else {
-                length = -1;
-                logger.warn("Download video MPD", "Invalid length. id={}, code={}, length={}", videoId, response.code(), length);
-            }
-            if ( length > 0L ) {
-                downloaded = true;
-                break;
-            }
-        }
-        boolean ok = false;
-        if ( downloaded ) {
-            byte[] data = bout.toByteArray();
-            try ( FileOutputStream fout = new FileOutputStream(target) ) {
-                fout.write(data);
-                ok = true;
-            }
-        } else {
-            logger.warn("Download video MPD", "All urls failed. id={}", videoId);
-        }
-        return ok;
-    }
-*/
-    public void searchSeries(long categoryId, Consumer<List<ViuSeries>> consumer) throws Exception {
+    public void searchSeries(long categoryId, Consumer<List<ViuSeriesSummary>> consumer) throws Exception {
         int offset = 0;
         int length = 10;
         boolean failed = false;
@@ -168,7 +92,7 @@ public class ViuSpider {
             }
 
             if ( response.ok() ) {
-                List<ViuSeries> series = response.getData().getSeries();
+                List<ViuSeriesSummary> series = response.getData().getSeries();
                 try {
                     consumer.accept(series);
                 } catch ( Throwable error ) {
@@ -188,6 +112,63 @@ public class ViuSpider {
             offset += 10;
         } while ( true );
         logger.info("Finished query series", "Result: end={}, failed={}", offset, failed);
+    }
+
+    public ViuVodDetail findProductDetail(long productId) throws Exception {
+        HttpClient.Request request = new HttpClient.RequestBuilder()
+                .url("https://www.viu.com/ott/hk/index.php")
+                .addQuery("area_id", "1")
+                .addQuery("language_flag_id", "3")
+                //.addQuery("cpreference_id", "")
+                .addQuery("r", "vod/ajax-detail")
+                .addQuery("platform_flag_label", "web")
+                .addQuery("product_id", String.valueOf(productId))
+                .addQuery("ut", "1")
+                .get();
+        HttpClient.Response<ViuResponse<ViuVodDetail>> response = client.execute(request, new TypeReference<ViuResponse<ViuVodDetail>>() {});
+        logger.info("Query series product", "Result: product={}, code={}", productId, response.code());
+        if ( !response.ok() ) {
+            return null;
+        }
+
+        ViuResponse<ViuVodDetail> vr = response.data();
+        return vr.getData();
+    }
+
+    public ViuResponse<Map<String, Object>> findProductStreams(String shareUrl, String ccsProductId) throws Exception {
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        HttpClient.Response<Long> rsp2 = client.download(shareUrl, null, bout);
+        logger.info("Query series shared page", "Result: shareUrl={}, ccsProductId={}, code={}", shareUrl, ccsProductId, rsp2.code());
+        if ( !rsp2.ok() ) {
+            return null;
+        }
+
+        Map<String, String> cookies = rsp2.getCookies();
+        String token = cookies.get("token");
+
+        HttpClient.Request req3 = new HttpClient.RequestBuilder()
+                .url("https://api-gateway-global.viu.com/api/playback/distribute")
+                .addQuery("cpreference_id", "")
+                .addQuery("ccs_product_id", ccsProductId)
+                .addQuery("language_flag_id", "3")
+                .header("authorization", "Bearer " + token)
+                .get();
+
+        HttpClient.Response<ViuResponse<Map<String, Object>>> rsp3 = client.execute(req3, new TypeReference<ViuResponse<Map<String, Object>>>() {});
+        logger.info("Query series stream", "Result: shareUrl={}, ccsProductId={}, token={}, code={}", shareUrl, ccsProductId, token, rsp3.code());
+        return rsp3.data();
+/*
+        ViuResponse<Map<String, Object>> r3 = rsp3.data();
+        logger.info("Query series stream", "Result: shareUrl={}, ccsProductId={}, status={}", shareUrl, ccsProductId, r3.getStatus());
+        if ( !r3.ok() ) {
+            return null;
+        }
+
+        Map<String, Object> stream = (Map<String, Object>) r3.getData().get("stream");
+        if ( stream == null ) {
+            logger.warn("Query series stream", "Product stream not found: shareUrl={}, ccsProductId={}, token={}", shareUrl, ccsProductId, token);
+        }
+        return stream; */
     }
 
 }
