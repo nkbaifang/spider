@@ -17,7 +17,7 @@ import java.util.Map;
 
 public class Downloader {
 
-    private static byte[] readFile(String file) throws IOException {
+    private static byte[] readFile(File file) throws IOException {
         ByteArrayOutputStream bout = new ByteArrayOutputStream();
         try ( FileInputStream fin = new FileInputStream(file) ) {
             byte[] buffer = new byte[1024];
@@ -47,15 +47,40 @@ public class Downloader {
     }
 
     public static void main(String[] args) throws Exception {
+        Map<String, String> headers = MapUtils.singleMap("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36");
 
-        File target = new File("D:\\dev\\spider\\downloader\\data\\video\\video.mp4");
-        try ( FileOutputStream fout = new FileOutputStream(target) ) {
-            byte[] data = readFile("D:\\dev\\spider\\downloader\\data\\video\\.dash");
-            fout.write(data);
-            for ( int i = 1; i < 926; i++ ) {
-                data = readFile("D:\\dev\\spider\\downloader\\data\\video\\" + i + ".mp4");
-                fout.write(data);
-            }
+        HttpClient.ClientBuilder builder = new HttpClient.ClientBuilder()
+                .headers(headers)
+                .proxy(InetAddress.getByName("127.0.0.1"), 7890)
+                .connectTimeout(20L)
+                .readTimeout(30L)
+                .useLogger(false);
+        HttpClient client = builder.build();
+
+        String url = "https://za-jnbteraco-02-napafrica.cdn.showmax.com/u/b1b79945-8e1d-46b9-9923-caed32b769ba/14378f1d-845f-42af-a326-9ca07936d7ca.ism";
+
+        File ad = new File("C:\\Users\\ASUS\\Desktop\\showmax\\mpd\\audio\\.dash");
+        download(client, url + "/dash/14378f1d-845f-42af-a326-9ca07936d7ca-audio_1=64000.dash", ad);
+
+        int num = 1;
+        boolean ok = true;
+        while ( ok ) {
+            File m4s = new File("C:\\Users\\ASUS\\Desktop\\showmax\\mpd\\audio\\" + num + ".m4s");
+            ok = download(client, url + "/dash/14378f1d-845f-42af-a326-9ca07936d7ca-audio_1=64000-" + num + ".m4s", m4s);
+            System.out.println("Download audio: num=" + num + ", ok=" + ok);
+            num++;
+        }
+
+        File vd = new File("C:\\Users\\ASUS\\Desktop\\showmax\\mpd\\video\\.dash");
+        download(client, url + "/dash/14378f1d-845f-42af-a326-9ca07936d7ca-video=1067196.dash", vd);
+
+        num = 1;
+        ok = true;
+        while ( ok ) {
+            File m4s = new File("C:\\Users\\ASUS\\Desktop\\showmax\\mpd\\video\\" + num + ".m4s");
+            ok = download(client, url + "/dash/14378f1d-845f-42af-a326-9ca07936d7ca-video=1067196-" + num + ".m4s", m4s);
+            System.out.println("Download audio: num=" + num + ", ok=" + ok);
+            num++;
         }
 
     }

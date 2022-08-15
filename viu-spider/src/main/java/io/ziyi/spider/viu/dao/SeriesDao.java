@@ -28,8 +28,13 @@ public class SeriesDao extends CommonDao {
     }
 
     @Transactional(readOnly = true)
+    public SeriesProduct findProduct(long id) {
+        return super.find(SeriesProduct.class, id, false);
+    }
+
+    @Transactional(readOnly = true)
     public List<SeriesProduct> findProductsWithoutStreams() {
-        return super.query(SeriesProduct.class, "query_series_without_streams", null);
+        return super.query(SeriesProduct.class, "query_products_without_streams", null);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -77,6 +82,11 @@ public class SeriesDao extends CommonDao {
     }
 
     @Transactional(readOnly = true)
+    public ProductStream findProductStream(long id) {
+        return super.find(ProductStream.class, id, false);
+    }
+
+    @Transactional(readOnly = true)
     public List<ProductStream> findProductStreams(long productId) {
         Map<String, Object> filter = MapUtils.build("productId", productId);
         return super.query(ProductStream.class, filter, null);
@@ -88,4 +98,24 @@ public class SeriesDao extends CommonDao {
         super.delete(ProductStream.class, filter);
         super.saveAll(streams);
     }
+
+    private List<ProductStream> findReadyStreams(int count) {
+        Map<String, Object> filter = MapUtils.build("status", ProductStream.Status.ready);
+        Map<String, Boolean> sorter = asc("id");
+        List<ProductStream> list = super.query(ProductStream.class, filter, sorter, 0, count, true);
+        list.forEach(stream -> stream.setStatus(ProductStream.Status.downloading));
+        super.saveAll(list);
+        return list;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public List<ProductStream> searchAndUpdateStreams(ProductStream.Status expected, ProductStream.Status update, int maxCount) {
+        Map<String, Object> filter = MapUtils.build("status", expected);
+        Map<String, Boolean> sorter = asc("id");
+        List<ProductStream> list = super.query(ProductStream.class, filter, sorter, 0, maxCount, true);
+        list.forEach(stream -> stream.setStatus(update));
+        super.saveAll(list);
+        return list;
+    }
+
 }

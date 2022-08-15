@@ -5,4 +5,5 @@ include 'showmax-spider'
 include 'downloader'
 include 'mpd-parser'
 include 'viu-spider'
+include 'm3u8-parser'
 

@@ -7,7 +7,7 @@ import io.ziyi.spider.viu.vo.ViuProduct;
 import io.ziyi.spider.viu.vo.ViuProductSummary;
 import io.ziyi.spider.viu.vo.ViuSeries;
 import io.ziyi.spider.viu.vo.ViuVodDetail;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +33,7 @@ public class ProductService extends BaseService {
     }
 
     //@Scheduled(fixedDelay = 4300L, initialDelay = 2300L)
-    public void queryProductDetail() {
+    private void queryProductDetail() {
         String value = peekTaskValue(PRODUCT_DETAIL_KEY);
         if ( value == null ) {
             //logger.info("Query series stream", "No series found.");
@@ -75,7 +75,7 @@ public class ProductService extends BaseService {
     }
 
     //@Scheduled(fixedDelay = 5000L, initialDelay = 2000L)
-    public void querySeriesProduct() {
+    private void querySeriesProduct() {
         String value = peekTaskValue(PRODUCT_KEY);
         if ( value == null ) {
             //logger.info("Query series product", "No products found.");
@@ -145,7 +145,13 @@ public class ProductService extends BaseService {
     @Transactional(rollbackFor = Exception.class)
     protected void saveProducts(ViuProduct vo) {
         if ( vo == null ) {
-            logger.warn("Save series with product", "Empty vo");
+            logger.warn("Save series product", "Empty vo");
+            return;
+        }
+
+        String ccsProductId = vo.getCcsProductId();
+        if ( StringUtils.isEmpty(ccsProductId) ) {
+            logger.warn("Save series product", "Empty CCS product id. seriesId={}, productId={}", vo.getSeriesId(), vo.getProductId());
             return;
         }
 
@@ -153,7 +159,7 @@ public class ProductService extends BaseService {
         if ( product == null ) {
             product = new SeriesProduct(vo);
         } else {
-            product.setCcsProductId(vo.getCcsProductId());
+            product.setCcsProductId(ccsProductId);
             product.setShareUrl(vo.getShareUrl());
         }
         dao.saveSeriesProduct(product);

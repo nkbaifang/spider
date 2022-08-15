@@ -1,16 +1,16 @@
 package io.ziyi.spider.viu.service;
 
+import common.config.tools.config.ConfigTools3;
 import io.ziyi.spider.util.MapUtils;
 import io.ziyi.spider.viu.model.ProductStream;
-import io.ziyi.spider.viu.model.Series;
 import io.ziyi.spider.viu.model.SeriesProduct;
 import io.ziyi.spider.viu.vo.ViuResponse;
 import io.ziyi.spider.viu.vo.ViuStatus;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +30,6 @@ public class StreamService extends BaseService {
         schedule(this::querySeriesStream, 2000L, 5000L);
     }
 
-    //@Scheduled(fixedDelay = 5000L, initialDelay = 2000L)
     public void querySeriesStream() {
         String value = peekTaskValue(STREAM_KEY);
         if ( value == null ) {
@@ -38,6 +37,8 @@ public class StreamService extends BaseService {
             return;
         }
 
+        int batch = ConfigTools3.getInt("spider.viu.series.query.batch-maximum-count", 6);
+        int count = 0;
         StreamService service = findBean(StreamService.class);
         ViuSpider spider = new ViuSpider(false);
         while ( value != null ) {
@@ -46,16 +47,25 @@ public class StreamService extends BaseService {
             String ccsProductId = ss[1];
             String shareUrl = ss[2];
 
+            logger.info("Query product streams", "Ready. productId={}, ccsProductId={}", productId, ccsProductId);
+
             try {
                 ViuResponse<Map<String, Object>> response = spider.findProductStreams(shareUrl, ccsProductId);
-                if ( response.ok() ) {
-                    Map<String, Object> stream = response.getData();
+                if ( response == null ) {
+                    service.saveProductStreamError(productId, null);
+                } else if ( response.ok() ) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> stream = (Map<String, Object>) response.getData().get("stream");
                     service.saveProductStream(productId, stream);
                 } else {
                     service.saveProductStreamError(productId, response.getStatus());
                 }
             } catch ( Exception ex ) {
                 logger.warn(ex, "Query product streams", "Failed to query product streams. productId={}", productId);
+            }
+
+            if ( ++count >= batch ) {
+                break;
             }
 
             value = peekTaskValue(STREAM_KEY);
@@ -70,7 +80,7 @@ public class StreamService extends BaseService {
             return;
         }
 
-        product.setStreamError(status.getCode());
+        product.setStreamError(status == null ? -1 : status.getCode());
         dao.saveSeriesProduct(product);
     }
 
@@ -122,18 +132,28 @@ public class StreamService extends BaseService {
         List<String> values = products.stream()
                 .map(product -> String.format("%d:%s:%s", product.getId(), product.getCcsProductId(), product.getShareUrl()))
                 .collect(Collectors.toList());
-        appendTaskValue(STREAM_KEY, values);
+        long a = appendTaskValue(STREAM_KEY, values);
+        logger.info("Refresh product streams", "Found streams: count={}, a={}", values.size(), a);
     }
 
-    public int refreshStreams(long seriesId) {
+    public int refreshBySeries(long seriesId) {
         List<SeriesProduct> products = dao.findSeriesProducts(seriesId);
         refreshProducts(products);
         return products.size();
     }
 
-    public int refreshStreams() {
+    public int refreshBySeries() {
         List<SeriesProduct> products = dao.findProductsWithoutStreams();
         refreshProducts(products);
         return products.size();
+    }
+
+    public int refreshByProduct(long productId) {
+        SeriesProduct product = dao.findProduct(productId);
+        if ( product == null ) {
+            return 0;
+        }
+        refreshProducts(Collections.singletonList(product));
+        return 1;
     }
 }

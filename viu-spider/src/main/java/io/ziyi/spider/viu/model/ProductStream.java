@@ -2,6 +2,8 @@ package io.ziyi.spider.viu.model;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
 import javax.persistence.Id;
@@ -21,6 +23,19 @@ import java.util.Objects;
         }
 )
 public class ProductStream extends BaseModel<Long> {
+
+    public enum Status {
+        ready,
+        downloading,
+        downloaded,
+        download_failed,
+
+        parsing,
+
+        parsed,
+
+        parse_failed
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -48,6 +63,16 @@ public class ProductStream extends BaseModel<Long> {
     @Column(name = "stream_error", nullable = false)
     private int streamError;
 
+    @Column(name = "status", nullable = false, length = 32)
+    @Enumerated(EnumType.STRING)
+    private Status status;
+
+    @Column(name = "local_path", length = 80)
+    private String localPath;
+
+    public ProductStream() {
+        this.status = Status.ready;
+    }
 
     @Override
     public Long getId() {
@@ -114,5 +139,21 @@ public class ProductStream extends BaseModel<Long> {
 
     public void setStreamError(int streamError) {
         this.streamError = streamError;
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    public void setStatus(Status status) {
+        this.status = status;
+    }
+
+    public String getLocalPath() {
+        return localPath;
+    }
+
+    public void setLocalPath(String localPath) {
+        this.localPath = localPath;
     }
 }

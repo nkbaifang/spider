@@ -37,16 +37,7 @@ public class FileUtils {
     }
 
     public static String getLocalDataPath() {
-        return ConfigTools3.getString("spider.showmax.path.local", true);
-    }
-
-    public static boolean hasEnoughAvailableSpace() {
-        if ( System.currentTimeMillis() > 0L ) {
-            return true;
-        }
-        File dir = new File(getLocalDataPath());
-        long threshold = ConfigTools3.getLong("spider.showmax.freespace.threshold-in-mb", 4096L) * 1048576L;
-        return dir.getUsableSpace() > threshold;
+        return ConfigTools3.getString("spider.viu.path.local", true);
     }
 
     public static File createLocalFile(String localPath) {

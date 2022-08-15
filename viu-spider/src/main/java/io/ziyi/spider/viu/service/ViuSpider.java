@@ -13,6 +13,8 @@ import io.ziyi.spider.viu.vo.ViuSeriesSummary;
 import io.ziyi.spider.viu.vo.ViuStatus;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
@@ -157,18 +159,16 @@ public class ViuSpider {
         HttpClient.Response<ViuResponse<Map<String, Object>>> rsp3 = client.execute(req3, new TypeReference<ViuResponse<Map<String, Object>>>() {});
         logger.info("Query series stream", "Result: shareUrl={}, ccsProductId={}, token={}, code={}", shareUrl, ccsProductId, token, rsp3.code());
         return rsp3.data();
-/*
-        ViuResponse<Map<String, Object>> r3 = rsp3.data();
-        logger.info("Query series stream", "Result: shareUrl={}, ccsProductId={}, status={}", shareUrl, ccsProductId, r3.getStatus());
-        if ( !r3.ok() ) {
-            return null;
-        }
-
-        Map<String, Object> stream = (Map<String, Object>) r3.getData().get("stream");
-        if ( stream == null ) {
-            logger.warn("Query series stream", "Product stream not found: shareUrl={}, ccsProductId={}, token={}", shareUrl, ccsProductId, token);
-        }
-        return stream; */
     }
 
+    public long download(String url, ByteArrayOutputStream bout) throws Exception {
+        long result = -1;
+        HttpClient.Response<Long> response = client.download(url, bout);
+        if ( response.ok() ) {
+            result = response.data();
+        } else {
+            logger.warn("Download", "Failed to download. code={}", response.code());
+        }
+        return result;
+    }
 }

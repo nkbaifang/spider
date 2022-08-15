@@ -24,7 +24,7 @@ import java.util.Objects;
 @NamedNativeQueries({
         @NamedNativeQuery(
                 name = "query_products_without_streams",
-                query = "select P.* from series_product P left join series_stream S on P.id = S.product_id where S.product_id is null order by P.series_id asc, P.number asc",
+                query = "select P.* from series_product P left join product_stream S on P.id = S.product_id where S.product_id is null order by P.series_id asc, P.number asc",
                 resultClass = SeriesProduct.class
         )
 })
